@@ -222,7 +222,7 @@ class Reinforce(object):
         # training : avg loss over time
         plt.figure(5)
         plt.clf()
-        plt.title("Avg. Training Loss over {} episodes".format(train_nepisodes))
+        plt.title("Avg. Training Loss over {} episodes".format(train_nepisodes[-1]))
         plt.xlabel("Number of training episodes")
         plt.ylabel("Avg. Loss")
         # plt.plot(train_losses_mean, color="crimson")
