@@ -144,6 +144,10 @@ class A2C(object):
         self.optimizer_critic.zero_grad()
         loss_actor.backward(retain_graph=True)
         loss_critic.backward()
+
+        torch.nn.utils.clip_grad_norm(self.actor.parameters(),1)
+        torch.nn.utils.clip_grad_norm(self.critic.parameters(),1)
+
         self.optimizer_actor.step()
         self.optimizer_critic.step()
 
