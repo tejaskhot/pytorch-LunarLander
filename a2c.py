@@ -201,7 +201,9 @@ class A2C(object):
     def plot_rewards(self, save=False):
         train_rewards = [self.train_rewards[i:i+self.test_freq] for i in range(0,len(self.train_rewards),self.test_freq)]
         test_rewards = [self.test_rewards[i:i+self.test_episodes] for i in range(0,len(self.test_rewards),self.test_episodes)]
-        train_losses = [self.losses[i:i+self.test_freq] for i in range(0,len(self.losses),self.test_freq)]
+        train_losses_actor = [self.losses_actor[i:i+self.test_freq] for i in range(0,len(self.losses_actor),self.test_freq)]
+        train_losses_critic = [self.losses_critic[i:i+self.test_freq] for i in range(0,len(self.losses_critic),self.test_freq)]
+
 
         # rewards
         train_rewards_mean = [np.mean(i) for i in train_rewards]
@@ -219,8 +221,11 @@ class A2C(object):
         test_steps_std = [np.mean(i) for i in test_steps]
 
         # loss
-        train_losses_mean = [np.mean(i) for i in train_losses]
-        train_losses_std = [np.std(i) for i in train_losses]
+        train_losses_actor_mean = [np.mean(i) for i in train_losses_actor]
+        train_losses_actor_std = [np.std(i) for i in train_losses_actor]
+        train_losses_critic_mean = [np.mean(i) for i in train_losses_critic]
+        train_losses_critic_std = [np.std(i) for i in train_losses_critic]
+
 
         # training : reward over time
         plt.figure(1)
@@ -277,18 +282,33 @@ class A2C(object):
         else:
             plt.show()
 
-        # training : avg loss over time
+        # training : avg actor loss over time
         plt.figure(5)
         plt.clf()
-        plt.title("Avg. Training Loss over {} episodes".format(train_nepisodes[-1]))
+        plt.title("Avg. Actor Training Loss over {} episodes".format(train_nepisodes[-1]))
         plt.xlabel("Number of training episodes")
         plt.ylabel("Avg. Loss")
         # plt.plot(train_losses_mean, color="crimson")
-        plt.errorbar(train_nepisodes, train_losses_mean, yerr=train_losses_std, color="crimson", uplims=True, lolims=True)
+        plt.errorbar(train_nepisodes, train_losses_actor_mean, yerr=train_losses_actor_std, color="crimson", uplims=True, lolims=True)
         if save :
             plt.savefig(self.expt_name + "train_loss_{}.png".format(len(self.test_rewards)))
         else:
             plt.show()
+
+        # training : avg critic loss over time
+        plt.figure(6)
+        plt.clf()
+        plt.title("Avg. Critic Training Loss over {} episodes".format(train_nepisodes[-1]))
+        plt.xlabel("Number of training episodes")
+        plt.ylabel("Avg. Loss")
+        # plt.plot(train_losses_mean, color="crimson")
+        plt.errorbar(train_nepisodes, train_losses_critic_mean, yerr=train_losses_critic_std, color="crimson", uplims=True, lolims=True)
+        if save :
+            plt.savefig(self.expt_name + "train_loss_{}.png".format(len(self.test_rewards)))
+        else:
+            plt.show()
+
+
 
 def main():
     parser = argparse.ArgumentParser(description="Using A2C for solving LunarLander")
