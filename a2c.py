@@ -114,8 +114,8 @@ class A2C(object):
         return steps, rewards, log_probs,value_states
 
     def optimize(self, rewards, log_probs,value_states):
-        R = torch.zeros(len(rewards)).type(FloatTensor)
-        V_end = torch.zeros(1,1).type(FloatTensor)
+        R = Variable(torch.zeros(len(rewards)).type(FloatTensor))
+        #V_end = torch.zeros(1,1).type(FloatTensor)
         loss_actor = 0
         loss_critic = 0
 
@@ -127,11 +127,11 @@ class A2C(object):
                 
             V_end = Variable(torch.FloatTensor([0])) if t>= T-N else value_states[t+N]
             for k in range(N):
-                R[t] += (Gamma**k)*(rewards[t+k]*1e-2 if t< T-k else 0)    
+                #pdb.set_trace()
+                R[t] = R[t] + (Gamma**k)*(rewards[t+k]*1e-2 if t< T-k else 0)    
                 # downscaling rewards by 1e-2 to help training
-            pdb.set_trace()        
-            R[t] += ((Gamma)**N)*V_end
-
+                    
+            R[t] = R[t] + ((Gamma)**N)*V_end
             loss_actor  = loss_actor  - (R[t] - value_states[t])*log_probs[t]
             loss_critic = loss_critic - (R[t] - value_states[t])**2
                      
@@ -142,16 +142,17 @@ class A2C(object):
 
         self.optimizer_actor.zero_grad()
         self.optimizer_critic.zero_grad()
-        loss_actor.backward()
+        loss_actor.backward(retain_graph=True)
         loss_critic.backward()
         self.optimizer_actor.step()
         self.optimizer_critic.step()
 
         #pdb.set_trace()
         #self.losses.append(loss.detach().cpu().numpy())
-        self.losses_actor.append(loss_actor.data.cpu().numpy()[0][0])
-        self.losses_critic.append(loss_critic.data.cpu().numpy()[0][0])
-
+        #self.losses_actor.append(loss_actor.data.cpu().numpy()[0])
+        #self.losses_critic.append(loss_critic.data.cpu().numpy()[0])
+        self.losses_actor.append(loss_actor.data[0])
+        self.losses_critic.append(loss_critic.data[0])
 
     def train(self, num_episodes):
         print("Going to be training for a total of {} episodes".format(num_episodes))
