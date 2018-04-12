@@ -150,7 +150,7 @@ class A2C(object):
             # Freeze the current policy and test over 100 episodes
             if (e+1) % self.test_freq == 0:
                 print("-"*10 + " testing now " + "-"*10)
-                self.test(self.test_episodes)
+                self.test(self.test_episodes, e)
 
             # Save the current policy model
             if (e+1) % (self.save_freq) == 0:
@@ -160,7 +160,7 @@ class A2C(object):
         # plot once when done training
         self.plot_rewards(save=True)
 
-    def test(self, num_episodes):
+    def test(self, num_episodes, e_train):
         state = Variable(torch.Tensor(self.env.reset()))
         testing_rewards = []
         testing_steps = []
@@ -176,8 +176,10 @@ class A2C(object):
             print("-"*10 + " Solved! " + "-"*10)
             print("Mean reward achieved : {} in {} steps".format(np.mean(testing_rewards), np.mean(testing_steps)))
             print("-"*50)
-            self.plot_rewards(save=True)
-        self.plot_rewards(save=True)
+            # if (e_train+1) % 5000 == 0: self.plot_rewards(save=True)
+            # else: self.plot_rewards(save=False)
+        if (e_train+1) % 5000 == 0: self.plot_rewards(save=True)
+        else: self.plot_rewards(save=False)
 
     def plot_rewards(self, save=False):
         train_rewards = [self.train_rewards[i:i+self.test_freq] for i in range(0,len(self.train_rewards),self.test_freq)]
@@ -315,9 +317,9 @@ def main():
     parser.add_argument("--seed", type=int, default=1234, help="random seed")
     parser.add_argument("--save_freq", type=int, default=1e4, help="checkpoint frequency for saving models")
     parser.add_argument("--test_freq", type=int, default=500, help="frequency for testing policy")
-    parser.add_argument("--save_path", type=str, default="models/a2c_1_1/", help="path for saving models")
-    parser.add_argument("--expt_name", type=str, default="plots/a2c_1_1/", help="expt name for saving results")
-    parser.add_argument("--N_steps", type=int, default=1, help="N-step")
+    parser.add_argument("--save_path", type=str, default="models/a2c_50_1/", help="path for saving models")
+    parser.add_argument("--expt_name", type=str, default="plots/a2c_50_1/", help="expt name for saving results")
+    parser.add_argument("--N_steps", type=int, default=50, help="N-step for the trace")
 
     args = parser.parse_args()
 
