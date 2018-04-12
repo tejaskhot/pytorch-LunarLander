@@ -179,7 +179,7 @@ class A2C(object):
             # if (e_train+1) % 5000 == 0: self.plot_rewards(save=True)
             # else: self.plot_rewards(save=False)
         if (e_train+1) % 5000 == 0: self.plot_rewards(save=True)
-        else: self.plot_rewards(save=False)
+        # else: self.plot_rewards(save=False)
 
     def plot_rewards(self, save=False):
         train_rewards = [self.train_rewards[i:i+self.test_freq] for i in range(0,len(self.train_rewards),self.test_freq)]
