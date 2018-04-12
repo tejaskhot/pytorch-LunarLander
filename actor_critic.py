@@ -36,7 +36,7 @@ class Actor(nn.Module):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         x = F.relu(self.fc3(x))
-        x = F.softmax(self.fc4(x),dim=-1)
+        x = F.log_softmax(self.fc4(x),dim=-1)
         return x
 
 class Critic(nn.Module):
@@ -83,9 +83,8 @@ class A2C(object):
 
     def select_action(self, state):
         state = Variable(Tensor(state))
-        action_probs = self.actor(state)
+        log_probs = self.actor(state)
         value = self.critic(state)
-        log_probs = F.log_softmax(action_probs, dim=-1)
         action = Categorical(log_probs.exp()).sample()
         return action.data.cpu().numpy()[0], log_probs[action], value
 
@@ -316,9 +315,9 @@ def main():
     parser.add_argument("--seed", type=int, default=1234, help="random seed")
     parser.add_argument("--save_freq", type=int, default=1e4, help="checkpoint frequency for saving models")
     parser.add_argument("--test_freq", type=int, default=500, help="frequency for testing policy")
-    parser.add_argument("--save_path", type=str, default="models/a2c_50_1/", help="path for saving models")
-    parser.add_argument("--expt_name", type=str, default="plots/a2c_50_1/", help="expt name for saving results")
-    parser.add_argument("--N_steps", type=int, default=50, help="N-step")
+    parser.add_argument("--save_path", type=str, default="models/a2c_1_1/", help="path for saving models")
+    parser.add_argument("--expt_name", type=str, default="plots/a2c_1_1/", help="expt name for saving results")
+    parser.add_argument("--N_steps", type=int, default=1, help="N-step")
 
     args = parser.parse_args()
 
