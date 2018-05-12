@@ -12,6 +12,9 @@ Instructions:
 1) Install all the dependencies  
 2) Clone the repo
 3) Run the below commands:
+
   3.1) python imitation.py
+
   3.2) python reinforce.py
+  
   3.3) python a2c.py
