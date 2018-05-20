@@ -3,18 +3,14 @@ import gym
 import os
 import sys
 import numpy as np
-from itertools import count
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+import matplotlib.pyplot as plt
 from torch.autograd import Variable
 from torch.distributions import Categorical
-
-import matplotlib.pyplot as plt
-
-# import ipdb
+from itertools import count
 
 # if gpu is to be used
 use_cuda = torch.cuda.is_available()
@@ -73,7 +69,6 @@ class Reinforce(object):
         steps = 0
         rewards = []
         log_probs = []
-        # for i in range(self.num_steps):
         while True:
             action, log_prob = self.select_action(state)
             state, reward, is_terminal, _ = self.env.step(action)

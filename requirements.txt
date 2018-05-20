@@ -5,3 +5,5 @@ gym[box2d]
 matplotlib
 pyglet
 h5py
+keras
+torch

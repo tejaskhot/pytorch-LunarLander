@@ -13,13 +13,13 @@ from torch.autograd import Variable
 from torch.distributions import Categorical
 
 import matplotlib.pyplot as plt
+plt.switch_backend('agg')
 
-import pdb
-
-# import ipdb
+#import ipdb
 
 # if gpu is to be used
 use_cuda = torch.cuda.is_available()
+#use_cuda = False
 print("use_cuda : ", use_cuda)
 FloatTensor = torch.cuda.FloatTensor if use_cuda else torch.FloatTensor
 LongTensor = torch.cuda.LongTensor if use_cuda else torch.LongTensor
@@ -38,24 +38,25 @@ class Actor(nn.Module):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         x = F.relu(self.fc3(x))
-        x = F.softmax(self.fc4(x),dim=0)
+        x = F.log_softmax(self.fc4(x),dim=-1)
         return x
 
 class Critic(nn.Module):
     def __init__(self, state_size):
         super(Critic, self).__init__()
         self.fc1 = nn.Linear(state_size, 16)
-        self.fc2 = nn.Linear(16, 16)
-        self.fc3 = nn.Linear(16, 16)
-        self.fc4 = nn.Linear(16, 1)
+        self.dp1 = nn.Dropout(p=0.5)
+        self.fc2 = nn.Linear(16, 8)
+        #self.fc3 = nn.Linear(16, 16)
+        self.fc4 = nn.Linear(8, 1)
 
     def forward(self, x):
         x = F.relu(self.fc1(x))
+        x = self.dp1(x)
         x = F.relu(self.fc2(x))
-        x = F.relu(self.fc3(x))
-        #x = F.softmax(self.fc4(x),dim=0)
+        #x = F.relu(self.fc3(x))
         x = self.fc4(x)
-        return x        
+        return x
 
 class A2C(object):
     def __init__(self, env, args):
@@ -65,7 +66,7 @@ class A2C(object):
         self.critic = Critic(env.observation_space.shape[0])
         if use_cuda:
             self.actor.cuda()
-            self.critic.cuda()        
+            self.critic.cuda()
         self.optimizer_actor = optim.Adam(self.actor.parameters(), lr=args.lr_actor)
         self.optimizer_critic = optim.Adam(self.critic.parameters(), lr=args.lr_critic)
         self.N_steps = args.N_steps
@@ -86,86 +87,66 @@ class A2C(object):
 
     def select_action(self, state):
         state = Variable(Tensor(state))
-        action_probs = self.actor(state)
-        value_state = self.critic(state)
-        log_probs = action_probs.log()
-        action = Categorical(action_probs).sample()
-        #pdb.set_trace()
-        #return action.data.cpu().numpy()[0], log_probs[action]
-        return action.data.cpu().numpy()[0], log_probs[action], value_state
-
+        log_probs = self.actor(state)
+        value = self.critic(state)
+        action = Categorical(log_probs.exp()).sample()
+        return action.data.cpu().numpy()[0], log_probs[action], value
 
     def play_episode(self, e):
         state = self.env.reset()
         steps = 0
         rewards = []
         log_probs = []
-        value_states = []
+        values = []
         # for i in range(self.num_steps):
         while True:
-            action, log_prob,value_state = self.select_action(state)
+            action, log_prob, value = self.select_action(state)
             state, reward, is_terminal, _ = self.env.step(action)
             log_probs.append(log_prob)
             rewards.append(reward)
-            value_states.append(value_state)
+            values.append(value)
             steps +=1
             if is_terminal:
                 break
-        return steps, rewards, log_probs,value_states
+        return steps, rewards, torch.cat(log_probs), torch.cat(values)
 
-    def optimize(self, rewards, log_probs,value_states):
-        R = Variable(torch.zeros(len(rewards)).type(FloatTensor))
-        #V_end = torch.zeros(1,1).type(FloatTensor)
-        loss_actor = 0
-        loss_critic = 0
-
+    def optimize(self, rewards, log_probs, values):
         T = len(rewards)
         N = self.N_steps
-        Gamma = self.gamma
-
-        for t in reversed(range(len(rewards))):         # i goes from T-1 to 0
-                
-            V_end = Variable(torch.FloatTensor([0])) if t>= T-N else value_states[t+N]
-            for k in range(N):
-                #pdb.set_trace()
-                R[t] = R[t] + (Gamma**k)*(rewards[t+k]*1e-2 if t< T-k else 0)    
-                # downscaling rewards by 1e-2 to help training
-                    
-            R[t] = R[t] + ((Gamma)**N)*V_end
-            loss_actor  = loss_actor  - (R[t] - value_states[t])*log_probs[t]
-            loss_critic = loss_critic - (R[t] - value_states[t])**2
-                     
-        #R = self.gamma * R + (rewards[i] * 1e-2)
-        #loss = loss - (log_probs[i]*Variable(R))    
-        loss_actor = loss_actor / len(rewards)
-        loss_critic = loss_critic / len(rewards)
+        R = np.zeros(T, dtype=np.float32)
+        loss_actor = 0
+        loss_critic = 0
+        for t in reversed(range(T)):
+            V_end = 0 if (t+N >= T) else values[t+N].data
+            R[t] = (self.gamma**N * V_end) + sum([self.gamma**k * rewards[t+k]*1e-2 for k in range(min(N, T-t))])
+        R = Variable(Tensor(R), requires_grad=False)
+        # compute losses using the advantage function;
+        # Note: `values` is detached while computing loss for actor
+        loss_actor = ((R - values.detach()) * -log_probs).mean()
+        loss_critic = ((R - values)**2).mean()
+        # loss = loss_actor + loss_critic
 
         self.optimizer_actor.zero_grad()
         self.optimizer_critic.zero_grad()
-        loss_actor.backward(retain_graph=True)
+        loss_actor.backward()
         loss_critic.backward()
-
-        torch.nn.utils.clip_grad_norm(self.actor.parameters(),1)
-        torch.nn.utils.clip_grad_norm(self.critic.parameters(),1)
-
+        # nn.utils.clip_grad_norm(self.actor.parameters(), grad_norm_limit)
+        # nn.utils.clip_grad_norm(self.critic.parameters(), grad_norm_limit)
         self.optimizer_actor.step()
         self.optimizer_critic.step()
-
-        #pdb.set_trace()
-        #self.losses.append(loss.detach().cpu().numpy())
-        #self.losses_actor.append(loss_actor.data.cpu().numpy()[0])
-        #self.losses_critic.append(loss_critic.data.cpu().numpy()[0])
-        self.losses_actor.append(loss_actor.data[0])
-        self.losses_critic.append(loss_critic.data[0])
+        # self.losses.append(loss.detach().cpu().numpy())
+        # ipdb.set_trace()
+        self.losses_actor.append(loss_actor.data.cpu().numpy()[0])
+        self.losses_critic.append(loss_critic.data.cpu().numpy()[0])
 
     def train(self, num_episodes):
         print("Going to be training for a total of {} episodes".format(num_episodes))
         state = Variable(torch.Tensor(self.env.reset()))
         for e in range(num_episodes):
-            steps, rewards, log_probs,value_states = self.play_episode(e)
+            steps, rewards, log_probs, values = self.play_episode(e)
             self.train_rewards.append(sum(rewards))
             self.train_steps.append(steps)
-            self.optimize(rewards, log_probs,value_states)
+            self.optimize(rewards, log_probs,values)
 
             if (e+1) % 100 == 0:
                 print("Episode: {}, reward: {}, steps: {}".format(e+1, sum(rewards), steps))
@@ -173,7 +154,7 @@ class A2C(object):
             # Freeze the current policy and test over 100 episodes
             if (e+1) % self.test_freq == 0:
                 print("-"*10 + " testing now " + "-"*10)
-                self.test(self.test_episodes)
+                self.test(self.test_episodes, e)
 
             # Save the current policy model
             if (e+1) % (self.save_freq) == 0:
@@ -183,12 +164,12 @@ class A2C(object):
         # plot once when done training
         self.plot_rewards(save=True)
 
-    def test(self, num_episodes):
+    def test(self, num_episodes, e_train):
         state = Variable(torch.Tensor(self.env.reset()))
         testing_rewards = []
         testing_steps = []
         for e in range(num_episodes):
-            steps, rewards, log_probs,value_states = self.play_episode(e)
+            steps, rewards, log_probs,values = self.play_episode(e)
             self.test_rewards.append(sum(rewards))
             self.test_steps.append(steps)
             testing_rewards.append(sum(rewards))
@@ -199,15 +180,17 @@ class A2C(object):
             print("-"*10 + " Solved! " + "-"*10)
             print("Mean reward achieved : {} in {} steps".format(np.mean(testing_rewards), np.mean(testing_steps)))
             print("-"*50)
-            self.plot_rewards(save=True)
-        self.plot_rewards(save=True)
+            # if (e_train+1) % 5000 == 0: self.plot_rewards(save=True)
+            # else: self.plot_rewards(save=False)
+        if (e_train+1) % 5000 == 0: self.plot_rewards(save=True)
+        #else: self.plot_rewards(save=False)
 
     def plot_rewards(self, save=False):
         train_rewards = [self.train_rewards[i:i+self.test_freq] for i in range(0,len(self.train_rewards),self.test_freq)]
         test_rewards = [self.test_rewards[i:i+self.test_episodes] for i in range(0,len(self.test_rewards),self.test_episodes)]
         train_losses_actor = [self.losses_actor[i:i+self.test_freq] for i in range(0,len(self.losses_actor),self.test_freq)]
         train_losses_critic = [self.losses_critic[i:i+self.test_freq] for i in range(0,len(self.losses_critic),self.test_freq)]
-
+        train_losses = [self.losses_critic[i:i+self.test_freq]+self.losses_actor[i:i+self.test_freq] for i in range(0,len(self.losses_critic),self.test_freq)]
 
         # rewards
         train_rewards_mean = [np.mean(i) for i in train_rewards]
@@ -229,6 +212,8 @@ class A2C(object):
         train_losses_actor_std = [np.std(i) for i in train_losses_actor]
         train_losses_critic_mean = [np.mean(i) for i in train_losses_critic]
         train_losses_critic_std = [np.std(i) for i in train_losses_critic]
+        train_losses_mean = [np.mean(i) for i in train_losses]
+        train_losses_std = [np.std(i) for i in train_losses]
 
 
         # training : reward over time
@@ -293,26 +278,37 @@ class A2C(object):
         plt.xlabel("Number of training episodes")
         plt.ylabel("Avg. Loss")
         # plt.plot(train_losses_mean, color="crimson")
-        plt.errorbar(train_nepisodes, train_losses_actor_mean, yerr=train_losses_actor_std, color="crimson", uplims=True, lolims=True)
+        plt.errorbar(train_nepisodes, train_losses_mean, yerr=train_losses_std, color="tomato", uplims=True, lolims=True)
         if save :
-            plt.savefig(self.expt_name + "train_loss_{}.png".format(len(self.test_rewards)))
+            plt.savefig(self.expt_name + "train_loss_actor_{}.png".format(len(self.test_rewards)))
         else:
             plt.show()
 
         # training : avg critic loss over time
-        plt.figure(6)
+        plt.figure(5)
         plt.clf()
         plt.title("Avg. Critic Training Loss over {} episodes".format(train_nepisodes[-1]))
         plt.xlabel("Number of training episodes")
         plt.ylabel("Avg. Loss")
         # plt.plot(train_losses_mean, color="crimson")
-        plt.errorbar(train_nepisodes, train_losses_critic_mean, yerr=train_losses_critic_std, color="crimson", uplims=True, lolims=True)
+        plt.errorbar(train_nepisodes, train_losses_mean, yerr=train_losses_std, color="tomato", uplims=True, lolims=True)
+        if save :
+            plt.savefig(self.expt_name + "train_loss_critic_{}.png".format(len(self.test_rewards)))
+        else:
+            plt.show()
+
+        # training : combined avg loss over time
+        plt.figure(5)
+        plt.clf()
+        plt.title("Avg. AC Combined Training Loss over {} episodes".format(train_nepisodes[-1]))
+        plt.xlabel("Number of training episodes")
+        plt.ylabel("Avg. Loss")
+        # plt.plot(train_losses_mean, color="crimson")
+        plt.errorbar(train_nepisodes, train_losses_mean, yerr=train_losses_std, color="crimson", uplims=True, lolims=True)
         if save :
             plt.savefig(self.expt_name + "train_loss_{}.png".format(len(self.test_rewards)))
         else:
             plt.show()
-
-
 
 def main():
     parser = argparse.ArgumentParser(description="Using A2C for solving LunarLander")
@@ -322,12 +318,12 @@ def main():
     parser.add_argument("--num_episodes", type=int, default=50000, help="number of episodes")
     parser.add_argument("--test_episodes", type=int, default=100, help="number of episodes to test on")
     #parser.add_argument("--num_steps", type=int, default=50, help="number of steps to run per episode")
-    parser.add_argument("--seed", type=int, default=1234, help="random seed")
+    parser.add_argument("--seed", type=int, default=123, help="random seed")
     parser.add_argument("--save_freq", type=int, default=1e4, help="checkpoint frequency for saving models")
     parser.add_argument("--test_freq", type=int, default=500, help="frequency for testing policy")
-    parser.add_argument("--save_path", type=str, default="models/a2c/", help="path for saving models")
-    parser.add_argument("--expt_name", type=str, default="plots/a2c/", help="expt name for saving results")
-    parser.add_argument("--N_steps", type=int, default=10, help="N-step")
+    parser.add_argument("--save_path", type=str, default="models/a2c_50_5/", help="path for saving models")
+    parser.add_argument("--expt_name", type=str, default="plots/a2c_50_5/", help="expt name for saving results")
+    parser.add_argument("--N_steps", type=int, default=100, help="N-step for the trace")
 
     args = parser.parse_args()
 
@@ -348,8 +344,6 @@ def main():
     # agent.test()
 
     env.close()
-
-
 
 if __name__ == "__main__":
     main()
